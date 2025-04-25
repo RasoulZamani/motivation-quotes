@@ -43,32 +43,45 @@ func (s *SQLiteStorage) GetRandomQuote() (string, error) {
 }
 
 func (s *SQLiteStorage) SyncFromJSON(filename string) error {
+	// Read new quotes from JSON
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
 	}
 
-	var quotes []string
-	if err := json.Unmarshal(data, &quotes); err != nil {
+	var newQuotes []string
+	if err := json.Unmarshal(data, &newQuotes); err != nil {
 		return err
 	}
 
+	// Begin transaction
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 
-	stmt, err := tx.Prepare("INSERT OR IGNORE INTO quotes (text) VALUES (?)")
+	// Step 1: Delete all existing quotes
+	_, err = tx.Exec("DELETE FROM quotes")
 	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Step 2: Insert all new quotes
+	stmt, err := tx.Prepare("INSERT INTO quotes (text) VALUES (?)")
+	if err != nil {
+		tx.Rollback()
 		return err
 	}
 	defer stmt.Close()
 
-	for _, quote := range quotes {
+	for _, quote := range newQuotes {
 		if _, err := stmt.Exec(quote); err != nil {
 			tx.Rollback()
 			return err
 		}
 	}
+
+	// Commit transaction
 	return tx.Commit()
 }
